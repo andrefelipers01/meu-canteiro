@@ -72,6 +72,9 @@
             gap: 15px;
             align-items: center;
         }
+        .caninteiro-form{
+            margin-bottom: 18px;
+        }
         @media print {
             body * {
                 visibility: hidden;
@@ -96,202 +99,302 @@
 <body>
 <div class="container">
     <h1>Gerador de Planta Baixa para Canteiro de Obras</h1>
-    <form id="areaForm">
+    <form id="canteiroForm" class="caninteiro-form">
+        <label>
+            Largura do Canteiro (m): <input type="number" id="siteWidth" min="1.2" step="0.6" required placeholder="ex: 12" />
+        </label>
+        <label>
+            Comprimento do Canteiro (m): <input type="number" id="siteLength" min="1.2" step="0.6" required placeholder="ex: 24" />
+        </label>
+        <button type="submit">Definir Canteiro</button>
+    </form>
+    <form id="areaForm" style="display:none;">
         <label>
             Nome da Área:
             <input type="text" id="areaName" required placeholder="ex: Depósito">
         </label>
         <label>
             Tamanho (m²):
-            <input type="number" id="areaSize" min="1" max="500" required placeholder="ex: 20">
+            <input type="number" id="areaSize" min="0.36" max="500" step="0.01" required placeholder="ex: 20">
         </label>
         <button type="submit">Adicionar Área</button>
     </form>
-
     <div>
         <strong>Áreas Adicionadas:</strong>
         <ul class="areas-list" id="areasList"></ul>
     </div>
-
-    <div class="controls">
+    <div class="controls" style="display:none;">
         <button class="zoom-btn" id="zoomIn">+</button>
         <button class="zoom-btn" id="zoomOut">-</button>
         <button id="printBtn">Imprimir Planta</button>
         <span style="font-size:14px;color:#888">Use os botões para aproximar/afastar (zoom) ou imprimir a planta baixa.</span>
     </div>
-
     <canvas id="canvas" width="800" height="400"></canvas>
-    <p style="font-size:13px;color:#888">A planta é ilustrativa. Cada área é proporcional ao tamanho informado.</p>
+    <p style="font-size:13px;color:#888">A planta é ilustrativa. Cada ambiente é ajustado a múltiplos de 0,6m.</p>
 </div>
-
 <script>
-    const form = document.getElementById('areaForm');
-    const areasList = document.getElementById('areasList');
-    const canvas = document.getElementById('canvas');
-    const ctx = canvas.getContext('2d');
-    const zoomInBtn = document.getElementById('zoomIn');
-    const zoomOutBtn = document.getElementById('zoomOut');
-    const printBtn = document.getElementById('printBtn');
+// --- LÓGICA DE CANTEIRO
+const siteForm = document.getElementById('canteiroForm');
+const areaForm = document.getElementById('areaForm');
+const siteWidthInput = document.getElementById('siteWidth');
+const siteLengthInput = document.getElementById('siteLength');
+const controlsDiv = document.querySelector('.controls');
+const areasList = document.getElementById('areasList');
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const zoomInBtn = document.getElementById('zoomIn');
+const zoomOutBtn = document.getElementById('zoomOut');
+const printBtn = document.getElementById('printBtn');
 
-    let areas = [];
-    let zoom = 1;
+let siteWidth = 0; // largura do canteiro (m)
+let siteLength = 0; // comprimento do canteiro (m)
+let areas = [];     // cada área: {name, size, width, length}
+let zoom = 1;
 
-    /**
-     * Função para distribuir áreas como retângulos lado a lado,
-     * quebrando para a linha de baixo quando necessário (estilo "mosaico flexível").
-     * Cada área mantém proporção relativa conforme o tamanho.
-     */
-    function drawPlant() {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.save();
-        ctx.scale(zoom, zoom);
+// --- AJUDANTE ARREDONDAMENTO PARA MÚLTIPLOS DE 0.6m
+function round06(x) {
+    return Math.round(x / 0.6) * 0.6;
+}
 
-        const padding = 14; // borda interna do canvas
-        const availableWidth = (canvas.width - 2*padding) / zoom;
-        const availableHeight = (canvas.height - 2*padding) / zoom;
+// --- LAYOUT DE AMBIENTES (colocação tipo "linha por linha", respeitando limite do canteiro)
+function drawPlant() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.save();
+    ctx.scale(zoom, zoom);
 
-        // Criação dos retângulos proporcionais ao tamanho das áreas
-        let totalArea = areas.reduce((sum, a) => sum + a.size, 0);
-        if (totalArea === 0) { ctx.restore(); return; }
+    // "padding" e dimensões úteis
+    const padding = 28; // espaço interno para ficar bonito
+    const usableWidth = (canvas.width - 2*padding) / zoom;
+    const usableHeight = (canvas.height - 2*padding) / zoom;
 
-        // Proporção da largura/altura entre as áreas
-        // Calcula área total retangular que será preenchida:
-        const A_canvas = availableWidth * availableHeight;
+    // proporção: metros -> pixels
+    const pxPerM_W = usableWidth / siteWidth;
+    const pxPerM_L = usableHeight / siteLength;
 
-        // Fator para converter de m² (informado) para px² (na planta)
-        const areaToPx = A_canvas / totalArea;
+    // desenha limite do canteiro
+    ctx.strokeStyle = '#2b4162';
+    ctx.setLineDash([]);
+    ctx.lineWidth = 4;
+    ctx.strokeRect(padding, padding, pxPerM_W * siteWidth, pxPerM_L * siteLength);
 
-        // 1° Passo: calcula PARA CADA ÁREA uma largura fixa (por fila), altura proporcional ao tamanho dela
-        // Distribuição em filas: quando acabar largura, começa nova linha
-        let x = padding, y = padding;
-        let rowHeight = 0, spacing = 12;
+    // posicionamento line by line
+    let xAtual = 0, yAtual = 0, maxHdaLinha = 0;
+    const spacing = 0.03; // espaço entre áreas em metros (não pixel!)
+    let colorStep = 360/(areas.length+1);
 
-        // Copia local das retângulos: [{...area, width, height}]
-        let rects = [];
-        let maxRowWidth = availableWidth;
-
-        // Definido um height padrão baixo (para melhor visualização)
-        let targetRowHeight = Math.max( Math.sqrt(areaToPx) * 24, 30 ); // altura ideal inicial
-
-        // Monta linhas (filas):
-        let row = [], rows = [];
-        let currentRowArea = 0;
-        const minRectWidth = 40, minRectHeight = 25;
-
-        // 1) Primeiro, "quebra" áreas para linhas considerando proporção dos tamanhos
-        let tempAreas = areas.map(a => Object.assign({}, a));
-        while(tempAreas.length > 0){
-            let currRow = [], rowArea = 0, rowWidthPx = 0;
-            // agrupa na linha até atingir a largura máxima
-            for(let k=0; k<tempAreas.length; k++){
-                let nextArea = tempAreas[k];
-                let arPx = nextArea.size * areaToPx;
-                let w = Math.max(Math.sqrt(arPx), minRectWidth);
-                let h = Math.max(arPx / w, minRectHeight);
-
-                if(rowWidthPx + w + spacing > maxRowWidth && currRow.length > 0) break;
-                currRow.push(Object.assign(nextArea, { width: w, height: h }));
-                rowWidthPx += w + spacing;
-            }
-            // Remove agrupadas da lista
-            tempAreas.splice(0, currRow.length);
-            rows.push(currRow);
+    areas.forEach((area, i) => {
+        let areaPxW = area.width * pxPerM_W;
+        let areaPxL = area.length * pxPerM_L;
+        if(xAtual + area.width + spacing > siteWidth + 0.0001) { // +epsilon
+            // próxima linha
+            xAtual = 0;
+            yAtual += maxHdaLinha + spacing;
+            maxHdaLinha = 0;
         }
 
-        // 2) Desenha as áreas fila a fila, como mosaico:
-        let cy = padding;
-        let colorStep = 360/areas.length;
-        rows.forEach((rowAreas, rowIdx) => {
-            let cx = padding;
-            let rowH = Math.max(...rowAreas.map(r => r.height));
-            rowAreas.forEach((rect, idx) => {
-                // cor alternativa para fácil visualização
-                ctx.fillStyle = `hsl(${(rowIdx * 67 + idx * colorStep) % 360},83%,80%)`;
-                ctx.strokeStyle = '#2b4162';
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                ctx.rect(cx, cy, rect.width, rect.height);
-                ctx.fill();
-                ctx.stroke();
+        // não desenha se passar limite do canteiro
+        if(yAtual + area.length > siteLength + 0.0001) return;
 
-                // Label
-                ctx.fillStyle = '#2b4162';
-                ctx.font = 'bold 16px Arial';
-                ctx.fillText(rect.name, cx + 5, cy + 18);
-                ctx.font = 'normal 12px Arial';
-                ctx.fillText(`${rect.size} m²`, cx + 5, cy + 34);
+        // retângulo ambiente
+        let drawX = padding + xAtual*pxPerM_W;
+        let drawY = padding + yAtual*pxPerM_L;
+        ctx.fillStyle = `hsl(${(i*colorStep+47)%360},72%,84%)`;
+        ctx.strokeStyle = "#2b4162";
+        ctx.lineWidth = 2;
+        ctx.setLineDash([7,5]);
+        ctx.beginPath();
+        ctx.rect(drawX, drawY, areaPxW, areaPxL);
+        ctx.fill();
+        ctx.stroke();
 
-                cx += rect.width + spacing;
-            });
-            cy += rowH + spacing;
-        });
+        // legenda
+        ctx.setLineDash([]);
+        ctx.fillStyle = "#2b4162";
+        ctx.font = 'bold 15px Arial';
+        ctx.fillText(area.name, drawX+7, drawY+19);
+        ctx.font = 'normal 13px Arial';
+        ctx.fillText(`${area.width.toFixed(1)} x ${area.length.toFixed(1)} m`, drawX+7, drawY+36);
+        ctx.fillText(`(${area.width*area.length} m²)`, drawX+7, drawY+54);
 
-        ctx.restore();
+        // avançar posição
+        maxHdaLinha = Math.max(maxHdaLinha, area.length);
+        xAtual += area.width + spacing;
+    });
+
+    // grade de múltiplos 0,6m (opcional, visual)
+    ctx.save();
+    ctx.strokeStyle = "#aac";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([2,6]);
+    for(let x=0.6; x<siteWidth;x+=0.6){
+        ctx.beginPath();
+        ctx.moveTo(padding + x*pxPerM_W, padding);
+        ctx.lineTo(padding + x*pxPerM_W, padding+pxPerM_L*siteLength);
+        ctx.stroke();
+    }
+    for(let y=0.6; y<siteLength;y+=0.6){
+        ctx.beginPath();
+        ctx.moveTo(padding, padding + y*pxPerM_L);
+        ctx.lineTo(padding+pxPerM_W*siteWidth, padding + y*pxPerM_L);
+        ctx.stroke();
+    }
+    ctx.restore();
+
+    // texto escala
+    ctx.fillStyle = "#555";
+    ctx.font = "12px Arial";
+    ctx.fillText(siteWidth + " m", padding + pxPerM_W * siteWidth / 2 - 19, padding - 8);
+    ctx.save();
+    ctx.translate(padding - 15, padding + pxPerM_L*siteLength/2 + 19);
+    ctx.rotate(-Math.PI/2);
+    ctx.fillText(siteLength + " m", 0,0);
+    ctx.restore();
+
+    ctx.restore();
+}
+
+// --- HANDLERS
+siteForm.addEventListener('submit', function(e){
+    e.preventDefault();
+    let w = parseFloat(siteWidthInput.value);
+    let l = parseFloat(siteLengthInput.value);
+    // arredondar para múltiplos de 0.6 m
+    w = round06(w);
+    l = round06(l);
+    if(w < 1.2 || l < 1.2) {
+        alert("O mínimo para largura e comprimento é 1.2m.");
+        return;
+    }
+    siteWidth = w;
+    siteLength = l;
+    siteWidthInput.value = w;
+    siteLengthInput.value = l;
+    // Exibir form das áreas + controles
+    areaForm.style.display = "";
+    controlsDiv.style.display = "";
+    siteForm.style.display = "none";
+    areas = [];
+    areasList.innerHTML = '';
+    drawPlant();
+});
+
+areaForm.addEventListener('submit', function(e){
+    e.preventDefault();
+    const name = document.getElementById('areaName').value.trim();
+    let sz = parseFloat(document.getElementById('areaSize').value);
+    if(!name || sz <= 0) return;
+
+    // Encontra combinações (largura x comprimento) possíveis, múltiplos de 0.6, área >= sz
+    // Fixa a largura (de 0.6 até siteWidth) e vê se há profundidade possível cabendo dentro do canteiro
+    let found = null, minArea = null;
+    for(let largura=0.6; largura<=siteWidth; largura+=0.6){
+        let prof = Math.ceil(sz/largura/0.6)*0.6;
+        if(prof > siteLength) continue;
+        let areaReal = largura*prof;
+        if(areaReal<sz) continue;
+        // Só aceita se área encaixa, por linha (máximo), também não pode ficar com ambiente muito comprido (ratio extremo)
+        if((minArea===null)||(areaReal < minArea)){
+            found = {width: largura, length: prof};
+            minArea = areaReal;
+        }
+    }
+    if(!found){
+        alert("Não é possível criar essa área nesse canteiro (considere aumentar as dimensões do canteiro, ou diminuir o tamanho do ambiente).");
+        return;
     }
 
-    form.addEventListener('submit', function(e) {
-        e.preventDefault();
-        const name = document.getElementById('areaName').value.trim();
-        const size = parseFloat(document.getElementById('areaSize').value);
-        if(name && size > 0){
-            areas.push({name, size});
-            areasList.innerHTML = '';
-            areas.forEach(a => {
-                areasList.innerHTML += `<li>${a.name} – ${a.size} m²</li>`;
-            });
-            drawPlant();
-            form.reset();
+    // Verifica se sobra espaço livre (em linha), para encaixar mais um retângulo (controle de overflow)
+    // Faz simulação "à la mosaico"
+    let simAreas = areas.concat([{name, size: sz, width: found.width, length: found.length}]);
+    let xAtual=0, yAtual=0, maxH = 0, cabe = true, spacing = 0.03;
+    for(let i=0;i<simAreas.length;i++){
+        if(xAtual + simAreas[i].width + spacing > siteWidth+0.0001){
+            xAtual = 0;
+            yAtual += maxH + spacing;
+            maxH = 0;
         }
-    });
-
-    zoomInBtn.addEventListener('click', function(e) {
-        e.preventDefault();
-        if (zoom < 2.5) {
-            zoom += 0.15;
-            drawPlant();
+        if(yAtual + simAreas[i].length > siteLength+0.0001){
+            cabe = false;
+            break;
         }
+        maxH = Math.max(maxH, simAreas[i].length);
+        xAtual += simAreas[i].width + spacing;
+    }
+    if(!cabe){
+        alert("Não há espaço disponível para essa área, considerando as demais já adicionadas.");
+        return;
+    }
+
+    areas.push({
+        name,
+        size: sz,
+        width: found.width,
+        length: found.length
     });
-
-    zoomOutBtn.addEventListener('click', function(e) {
-        e.preventDefault();
-        if (zoom > 0.4) {
-            zoom -= 0.15;
-            drawPlant();
-        }
+    // Atualiza a lista de áreas
+    areasList.innerHTML = '';
+    areas.forEach((a, idx) => {
+        areasList.innerHTML += `<li>${a.name} – ${a.width.toFixed(1)} x ${a.length.toFixed(1)} m <span style="color:#888;">(${(a.width*a.length).toFixed(2)} m²)</span> <button onclick="removeArea(${idx})" style="color:#c00;background:none;border:none;cursor:pointer;" title="Remover área">&times;</button></li>`;
     });
+    drawPlant();
+    areaForm.reset();
+});
 
-    printBtn.addEventListener('click', function(e) {
-        e.preventDefault();
-
-        // Salvar o canvas em imagem temporária para impressão
-        let dataUrl = canvas.toDataURL("image/png");
-        let win = window.open('', '_blank');
-        win.document.write(`
-            <html>
-              <head>
-                <title>Imprimir Planta do Canteiro</title>
-                <style>
-                body { margin: 0; text-align: center; }
-                img { max-width: 100vw; max-height: 95vh; margin: 0 auto; }
-                </style>
-              </head>
-              <body>
-                <img src="${dataUrl}" />
-                <script>
-                  window.onload = function() {
-                    setTimeout(function() {
-                      window.print();
-                    }, 350);
-                  }
-                <\/script>
-              </body>
-            </html>
-        `);
-        win.document.close();
+// Remover área
+window.removeArea = function(idx){
+    areas.splice(idx, 1);
+    areasList.innerHTML = '';
+    areas.forEach((a, i) => {
+        areasList.innerHTML += `<li>${a.name} – ${a.width.toFixed(1)} x ${a.length.toFixed(1)} m <span style="color:#888;">(${(a.width*a.length).toFixed(2)} m²)</span> <button onclick="removeArea(${i})" style="color:#c00;background:none;border:none;cursor:pointer;" title="Remover área">&times;</button></li>`;
     });
+    drawPlant();
+};
+// --- ZOOM
+zoomInBtn.addEventListener('click', function(e) {
+    e.preventDefault();
+    if (zoom < 2.5) {
+        zoom += 0.15;
+        drawPlant();
+    }
+});
+zoomOutBtn.addEventListener('click', function(e) {
+    e.preventDefault();
+    if (zoom > 0.4) {
+        zoom -= 0.15;
+        drawPlant();
+    }
+});
+// --- PRINT
+printBtn.addEventListener('click', function(e) {
+    e.preventDefault();
+    let dataUrl = canvas.toDataURL("image/png");
+    let win = window.open('', '_blank');
+    win.document.write(`
+        <html>
+          <head>
+            <title>Imprimir Planta do Canteiro</title>
+            <style>
+            body { margin: 0; text-align: center; }
+            img { max-width: 100vw; max-height: 95vh; margin: 0 auto; }
+            </style>
+          </head>
+          <body>
+            <img src="${dataUrl}" />
+            <script>
+              window.onload = function() {
+                setTimeout(function() {
+                  window.print();
+                }, 350);
+              }
+            <\/script>
+          </body>
+        </html>
+    `);
+    win.document.close();
+});
 
-    // Redesenhar ao carregar página
-    window.addEventListener('DOMContentLoaded', drawPlant);
+// Redesenhar ao carregar página
+window.addEventListener('DOMContentLoaded', drawPlant);
 </script>
 </body>
 </html>
