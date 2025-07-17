@@ -16,33 +16,37 @@
             background: #fff;
             border-radius: 12px;
             box-shadow: 0 2px 14px rgba(0,0,0,.08);
-            padding: 30px;
+            padding: 35px;
         }
         h1 {
             color: #2b4162;
+            font-size: 2.2rem;
         }
         form {
             margin-bottom: 22px;
         }
         label {
             margin-right: 15px;
+            font-size: 1.07rem;
         }
         input[type="text"], input[type="number"] {
             margin-right: 12px;
-            padding: 5px 8px;
+            padding: 6px 9px;
+            font-size: 1.03rem;
         }
         button, .zoom-btn {
             background: #2b4162;
             color: #fff;
             border: none;
-            padding: 8px 20px;
-            border-radius: 5px;
+            padding: 8px 22px;
+            border-radius: 6px;
             cursor: pointer;
-            font-size: 16px;
+            font-size: 17px;
+            margin-right: 0.3rem;
         }
         .zoom-btn {
-            padding: 6px 16px;
-            font-size: 18px;
+            padding: 6px 17px;
+            font-size: 21px;
             margin-right: 10px;
         }
         #canvas {
@@ -59,6 +63,7 @@
         }
         .areas-list li {
             color: #555;
+            font-size: 1.00rem;
         }
         .controls {
             margin-top: 15px;
@@ -131,44 +136,94 @@
     let areas = [];
     let zoom = 1;
 
+    /**
+     * Função para distribuir áreas como retângulos lado a lado,
+     * quebrando para a linha de baixo quando necessário (estilo "mosaico flexível").
+     * Cada área mantém proporção relativa conforme o tamanho.
+     */
     function drawPlant() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.save();
         ctx.scale(zoom, zoom);
 
+        const padding = 14; // borda interna do canvas
+        const availableWidth = (canvas.width - 2*padding) / zoom;
+        const availableHeight = (canvas.height - 2*padding) / zoom;
+
+        // Criação dos retângulos proporcionais ao tamanho das áreas
         let totalArea = areas.reduce((sum, a) => sum + a.size, 0);
-        let currentX = 10, currentY = 10, rowHeight = 0;
+        if (totalArea === 0) { ctx.restore(); return; }
 
-        // Definição simplificada: distribuir áreas na horizontal, quebra linha quando acabar espaço
-        const plantWidth = (canvas.width - 20) / zoom;
-        const plantHeight = (canvas.height - 20) / zoom;
-        const scale = totalArea > 0 ? Math.min(
-            plantWidth / Math.sqrt(totalArea * plantWidth / plantHeight),
-            plantHeight / Math.sqrt(totalArea * plantHeight / plantWidth)
-        ) : 1;
+        // Proporção da largura/altura entre as áreas
+        // Calcula área total retangular que será preenchida:
+        const A_canvas = availableWidth * availableHeight;
 
-        areas.forEach((area, idx) => {
-            // Cada área é um quadrado proporcional à sua metragem quadrada (ilustrativo)
-            let areaPx = Math.sqrt(area.size) * scale * 2.2;
-            if (currentX + areaPx > plantWidth + 10) {
-                currentX = 10;
-                currentY += rowHeight + 20;
-                rowHeight = 0;
+        // Fator para converter de m² (informado) para px² (na planta)
+        const areaToPx = A_canvas / totalArea;
+
+        // 1° Passo: calcula PARA CADA ÁREA uma largura fixa (por fila), altura proporcional ao tamanho dela
+        // Distribuição em filas: quando acabar largura, começa nova linha
+        let x = padding, y = padding;
+        let rowHeight = 0, spacing = 12;
+
+        // Copia local das retângulos: [{...area, width, height}]
+        let rects = [];
+        let maxRowWidth = availableWidth;
+
+        // Definido um height padrão baixo (para melhor visualização)
+        let targetRowHeight = Math.max( Math.sqrt(areaToPx) * 24, 30 ); // altura ideal inicial
+
+        // Monta linhas (filas):
+        let row = [], rows = [];
+        let currentRowArea = 0;
+        const minRectWidth = 40, minRectHeight = 25;
+
+        // 1) Primeiro, "quebra" áreas para linhas considerando proporção dos tamanhos
+        let tempAreas = areas.map(a => Object.assign({}, a));
+        while(tempAreas.length > 0){
+            let currRow = [], rowArea = 0, rowWidthPx = 0;
+            // agrupa na linha até atingir a largura máxima
+            for(let k=0; k<tempAreas.length; k++){
+                let nextArea = tempAreas[k];
+                let arPx = nextArea.size * areaToPx;
+                let w = Math.max(Math.sqrt(arPx), minRectWidth);
+                let h = Math.max(arPx / w, minRectHeight);
+
+                if(rowWidthPx + w + spacing > maxRowWidth && currRow.length > 0) break;
+                currRow.push(Object.assign(nextArea, { width: w, height: h }));
+                rowWidthPx += w + spacing;
             }
-            ctx.fillStyle = `hsl(${idx*60%360},83%,80%)`;
-            ctx.strokeStyle = '#2b4162';
-            ctx.lineWidth = 2;
-            ctx.fillRect(currentX, currentY, areaPx, areaPx);
-            ctx.strokeRect(currentX, currentY, areaPx, areaPx);
+            // Remove agrupadas da lista
+            tempAreas.splice(0, currRow.length);
+            rows.push(currRow);
+        }
 
-            ctx.fillStyle = '#2b4162';
-            ctx.font = 'bold 18px Arial';
-            ctx.fillText(area.name, currentX + 10, currentY + 28);
-            ctx.font = 'normal 12px Arial';
-            ctx.fillText(`${area.size} m²`, currentX + 10, currentY + 48);
+        // 2) Desenha as áreas fila a fila, como mosaico:
+        let cy = padding;
+        let colorStep = 360/areas.length;
+        rows.forEach((rowAreas, rowIdx) => {
+            let cx = padding;
+            let rowH = Math.max(...rowAreas.map(r => r.height));
+            rowAreas.forEach((rect, idx) => {
+                // cor alternativa para fácil visualização
+                ctx.fillStyle = `hsl(${(rowIdx * 67 + idx * colorStep) % 360},83%,80%)`;
+                ctx.strokeStyle = '#2b4162';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.rect(cx, cy, rect.width, rect.height);
+                ctx.fill();
+                ctx.stroke();
 
-            currentX += areaPx + 20;
-            if (areaPx > rowHeight) rowHeight = areaPx;
+                // Label
+                ctx.fillStyle = '#2b4162';
+                ctx.font = 'bold 16px Arial';
+                ctx.fillText(rect.name, cx + 5, cy + 18);
+                ctx.font = 'normal 12px Arial';
+                ctx.fillText(`${rect.size} m²`, cx + 5, cy + 34);
+
+                cx += rect.width + spacing;
+            });
+            cy += rowH + spacing;
         });
 
         ctx.restore();
@@ -235,7 +290,7 @@
         win.document.close();
     });
 
-    // Redesenhar caso resizing canvas (opcional)
+    // Redesenhar ao carregar página
     window.addEventListener('DOMContentLoaded', drawPlant);
 </script>
 </body>
