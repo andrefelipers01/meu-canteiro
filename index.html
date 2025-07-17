@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Planta Baixa - Canteiro de Obras</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f9f9f9;
+            margin: 0;
+            padding: 0;
+        }
+        .container {
+            max-width: 980px;
+            margin: 30px auto;
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 2px 14px rgba(0,0,0,.08);
+            padding: 30px;
+        }
+        h1 {
+            color: #2b4162;
+        }
+        form {
+            margin-bottom: 22px;
+        }
+        label {
+            margin-right: 15px;
+        }
+        input[type="text"], input[type="number"] {
+            margin-right: 12px;
+            padding: 5px 8px;
+        }
+        button {
+            background: #2b4162;
+            color: #fff;
+            border: none;
+            padding: 8px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        #canvas {
+            margin-top: 35px;
+            background: #ececec;
+            border: 2px solid #2b4162;
+            border-radius: 8px;
+        }
+        .areas-list {
+            margin-top: 25px;
+        }
+        .areas-list li {
+            color: #555;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Gerador de Planta Baixa para Canteiro de Obras</h1>
+    <form id="areaForm">
+        <label>
+            Nome da Área:
+            <input type="text" id="areaName" required placeholder="ex: Depósito">
+        </label>
+        <label>
+            Tamanho (m²):
+            <input type="number" id="areaSize" min="1" max="500" required placeholder="ex: 20">
+        </label>
+        <button type="submit">Adicionar Área</button>
+    </form>
+
+    <div>
+        <strong>Áreas Adicionadas:</strong>
+        <ul class="areas-list" id="areasList"></ul>
+    </div>
+
+    <canvas id="canvas" width="800" height="400"></canvas>
+    <p style="font-size:13px;color:#888">A planta é ilustrativa. Cada área é proporcional ao tamanho informado.</p>
+</div>
+
+<script>
+    const form = document.getElementById('areaForm');
+    const areasList = document.getElementById('areasList');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+
+    let areas = [];
+
+    function drawPlant() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        let totalArea = areas.reduce((sum, a) => sum + a.size, 0);
+        let currentX = 10, currentY = 10, rowHeight = 0;
+
+        // Definição simplificada: distribuir áreas na horizontal, quebra linha quando acabar espaço
+        const plantWidth = canvas.width - 20;
+        const plantHeight = canvas.height - 20;
+        const scale = totalArea > 0 ? Math.min(
+            plantWidth / Math.sqrt(totalArea * plantWidth / plantHeight),
+            plantHeight / Math.sqrt(totalArea * plantHeight / plantWidth)
+        ) : 1;
+
+        areas.forEach((area, idx) => {
+            // Cada área é um quadrado proporcional à sua metragem quadrada (simplesmente para ilustrar)
+            let areaPx = Math.sqrt(area.size) * scale * 2.2;
+            if (currentX + areaPx > plantWidth + 10) {
+                currentX = 10;
+                currentY += rowHeight + 20;
+                rowHeight = 0;
+            }
+            // cor alternativa para fácil visualização
+            ctx.fillStyle = `hsl(${idx*60%360},83%,80%)`;
+            ctx.strokeStyle = '#2b4162';
+            ctx.lineWidth = 2;
+            ctx.fillRect(currentX, currentY, areaPx, areaPx);
+            ctx.strokeRect(currentX, currentY, areaPx, areaPx);
+            ctx.fillStyle = '#2b4162';
+            ctx.font = 'bold 18px Arial';
+            ctx.fillText(area.name, currentX + 10, currentY + 28);
+            ctx.font = 'normal 12px Arial';
+            ctx.fillText(`${area.size} m²`, currentX + 10, currentY + 48);
+
+            currentX += areaPx + 20;
+            if (areaPx > rowHeight) rowHeight = areaPx;
+        });
+    }
+
+    form.addEventListener('submit', function(e) {
+        e.preventDefault();
+        const name = document.getElementById('areaName').value.trim();
+        const size = parseFloat(document.getElementById('areaSize').value);
+        if(name && size > 0){
+            areas.push({name, size});
+            // Atualiza lista
+            areasList.innerHTML = '';
+            areas.forEach(a => {
+                areasList.innerHTML += `<li>${a.name} – ${a.size} m²</li>`;
+            });
+            drawPlant();
+            form.reset();
+        }
+    });
+</script>
+</body>
+</html>
