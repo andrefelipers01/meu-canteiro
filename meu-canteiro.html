@@ -30,17 +30,17 @@
     <h1>Gerador de Planta Baixa para Canteiro de Obras</h1>
     <form id="canteiroForm" class="caninteiro-form">
         <label>
-            Largura do Canteiro (m): <input type="number" id="siteWidth" min="1.2" step="0.1" required placeholder="ex: 12" />
+            Largura do Canteiro (m): <input type="number" id="siteWidth" min="1.2" step="any" required placeholder="ex: 12" />
         </label>
         <label>
-            Comprimento do Canteiro (m): <input type="number" id="siteLength" min="1.2" step="0.1" required placeholder="ex: 24" />
+            Comprimento do Canteiro (m): <input type="number" id="siteLength" min="1.2" step="any" required placeholder="ex: 24" />
         </label>
         <button type="submit">Definir Canteiro</button>
     </form>
     <form id="areaForm" style="display:none;">
         <label> Nome da Área: <input type="text" id="areaName" required placeholder="ex: Depósito"></label>
-        <label> Largura (m): <input type="number" id="envWidth" min="0.6" step="0.1" required placeholder="ex: 3.6"> </label>
-        <label> Comprimento (m): <input type="number" id="envLength" min="0.6" step="0.1" required placeholder="ex: 6.0"> </label>
+        <label> Largura (m): <input type="number" id="envWidth" min="0.6" step="any" required placeholder="ex: 3.6"> </label>
+        <label> Comprimento (m): <input type="number" id="envLength" min="0.6" step="any" required placeholder="ex: 6.0"> </label>
         <button type="submit">Adicionar Ambiente</button>
     </form>
     <div>
@@ -54,7 +54,7 @@
         <span style="font-size:14px;color:#888">Use os botões para aproximar/afastar (zoom) ou imprimir a planta baixa.</span>
     </div>
     <canvas id="canvas" width="800" height="400"></canvas>
-    <p style="font-size:13px;color:#888">Arraste uma área para reposicionar. A planta é ilustrativa. Todas as dimensões respeitam múltiplos de 0,10m.</p>
+    <p style="font-size:13px;color:#888">Arraste uma área para reposicionar. A planta é ilustrativa e as dimensões podem ter qualquer valor.</p>
 </div>
 <script>
 const siteForm = document.getElementById('canteiroForm');
@@ -75,8 +75,7 @@ let areas = [];
 let zoom = 1;
 let draggingIdx = null;
 let dragOffset = {x:0, y:0};
-// Função de arredondamento para múltiplos de 0,10m
-function round10(x) { return Math.round(x / 0.1) * 0.1; }
+
 function getColorForIndex(i, len) {
     let colorStep = 360 / (len+1);
     return `hsl(${(i*colorStep+47)%360},72%,84%)`;
@@ -99,11 +98,11 @@ function ajustarSobreposicao(idxMovido) {
             for(let j=0;j<ocupados.length;j++) {
                 if(ocupados[j].idx===i) continue;
                 if(rectIntersect(a.x, a.y, a.width, a.length, ocupados[j].x, ocupados[j].y, ocupados[j].w, ocupados[j].l)){
-                    a.y = round10(a.y+0.1);
+                    a.y = a.y+0.01; // subir um pouco, mínimo absoluto para não travar, mas pode ser qualquer valor pequeno
                     encontrou = true;
                 }
-                if(a.x+a.width > siteWidth) { a.x = siteWidth - a.width; a.x=round10(Math.max(0,a.x));}
-                if(a.y+a.length > siteLength) { a.y = siteLength - a.length; a.y=round10(Math.max(0,a.y));}
+                if(a.x+a.width > siteWidth) { a.x = siteWidth - a.width; a.x=Math.max(0,a.x);}
+                if(a.y+a.length > siteLength) { a.y = siteLength - a.length; a.y=Math.max(0,a.y);}
             }
         } while(encontrou && tentativas<10);
         ocupados[i] = {x:a.x, y:a.y, w:a.width, l:a.length, idx:i};
@@ -150,12 +149,12 @@ function drawPlant(selectedIdx=null){
         ctx.font = 'bold 15px Arial';
         ctx.fillText(area.name, drawX+7, drawY+19);
         ctx.font = 'normal 13px Arial';
-        ctx.fillText(`${area.width.toFixed(1)} x ${area.length.toFixed(1)} m`, drawX+7, drawY+36);
+        ctx.fillText(`${area.width.toFixed(2)} x ${area.length.toFixed(2)} m`, drawX+7, drawY+36);
         ctx.fillText(`(${area.size.toFixed(2)} m²)`, drawX+7, drawY+54);
     });
     ctx.save();
     ctx.strokeStyle = "#aac"; ctx.lineWidth = 1; ctx.setLineDash([2,6]);
-    // Linhas de grade a cada 0,1m
+    // Linhas de grade a cada 0,1m (mantém a grade fina para referência, mas o preenchimento é livre)
     for(let x=0.1;x<siteWidth;x+=0.1){
         ctx.beginPath(); ctx.moveTo(padding + x*pxPerM_W, padding); ctx.lineTo(padding + x*pxPerM_W, padding+pxPerM_L*siteLength); ctx.stroke();
     }
@@ -206,8 +205,8 @@ canvas.addEventListener('mousemove', function(ev){
     if(draggingIdx==null) return;
     let {mx,my} = pixelToMeters(ev);
     let a = areas[draggingIdx];
-    let newX = round10(mx-dragOffset.x);
-    let newY = round10(my-dragOffset.y);
+    let newX = mx-dragOffset.x;
+    let newY = my-dragOffset.y;
     newX = Math.min(Math.max(0, newX), siteWidth-a.width);
     newY = Math.min(Math.max(0, newY), siteLength-a.length);
     a.x = newX; a.y = newY;
@@ -224,15 +223,15 @@ window.addEventListener('mouseup',function(ev){
 function arrumaLista() {
     areasList.innerHTML = '';
     areas.forEach((a, idx) => {
-        areasList.innerHTML += `<li>${a.name} – ${a.width.toFixed(1)} x ${a.length.toFixed(1)} m
+        areasList.innerHTML += `<li>${a.name} – ${a.width.toFixed(2)} x ${a.length.toFixed(2)} m
          <span style="color:#888;">(${a.size.toFixed(2)} m²)
-         · pos: (${a.x!==undefined?a.x.toFixed(1):0},${a.y!==undefined?a.y.toFixed(1):0})</span>
+         · pos: (${a.x!==undefined?a.x.toFixed(2):0},${a.y!==undefined?a.y.toFixed(2):0})</span>
          <button onclick="removeArea(${idx})" style="color:#c00;background:none;border:none;cursor:pointer;" title="Remover área">&times;</button></li>`;
     });
 }
 function dispoLinear() {
     let xAtual=0, yAtual=0, maxHdaLinha=0;
-    let spacing=0.01; // Espaçamento mínimo múltiplo de 0,01 (opcional), se quiser 0,10 aumente aqui
+    let spacing=0.01; // Espaçamento mínimo, mantém apenas para evitar sobreposição
     for(let i=0;i<areas.length;i++) {
         let a = areas[i];
         if(a.x!=null&&a.y!=null) continue;
@@ -246,7 +245,7 @@ function dispoLinear() {
 }
 siteForm.addEventListener('submit', function(e){
     e.preventDefault();
-    let w = round10(Number(siteWidthInput.value)), l = round10(Number(siteLengthInput.value));
+    let w = Number(siteWidthInput.value), l = Number(siteLengthInput.value);
     if(w<1.2||l<1.2){ alert("O mínimo é 1,2m."); return; }
     siteWidth=w; siteLength=l;
     siteWidthInput.value=w; siteLengthInput.value=l;
@@ -258,10 +257,8 @@ siteForm.addEventListener('submit', function(e){
 areaForm.addEventListener('submit', function(e){
     e.preventDefault();
     const name = document.getElementById('areaName').value.trim();
-    let w = round10(Number(envWidthInput.value)), l = round10(Number(envLengthInput.value));
+    let w = Number(envWidthInput.value), l = Number(envLengthInput.value);
     if(!name||w<=0||l<=0) return;
-    // Nova checagem para múltiplo de 0,10m
-    if(w%0.1>0.0001||l%0.1>0.0001){ alert("Dimensões só múltiplos de 0,10m."); return;}
     if(w>siteWidth||l>siteLength){ alert("Ambiente maior que canteiro!"); return;}
     let tempArea = {name, width:w, length:l, size:w*l};
     let simAreas = areas.concat([{...tempArea}]);
