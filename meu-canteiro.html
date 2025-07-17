@@ -114,10 +114,14 @@
             <input type="text" id="areaName" required placeholder="ex: Depósito">
         </label>
         <label>
-            Tamanho (m²):
-            <input type="number" id="areaSize" min="0.36" max="500" step="0.01" required placeholder="ex: 20">
+            Largura (m):
+            <input type="number" id="envWidth" min="0.6" step="0.01" required placeholder="ex: 3.6">
         </label>
-        <button type="submit">Adicionar Área</button>
+        <label>
+            Comprimento (m):
+            <input type="number" id="envLength" min="0.6" step="0.01" required placeholder="ex: 6.0">
+        </label>
+        <button type="submit">Adicionar Ambiente</button>
     </form>
     <div>
         <strong>Áreas Adicionadas:</strong>
@@ -130,7 +134,7 @@
         <span style="font-size:14px;color:#888">Use os botões para aproximar/afastar (zoom) ou imprimir a planta baixa.</span>
     </div>
     <canvas id="canvas" width="800" height="400"></canvas>
-    <p style="font-size:13px;color:#888">A planta é ilustrativa. Cada ambiente é ajustado a múltiplos de 0,6m.</p>
+    <p style="font-size:13px;color:#888">A planta é ilustrativa. Todas as dimensões respeitam múltiplos de 0,6m.</p>
 </div>
 <script>
 // --- LÓGICA DE CANTEIRO
@@ -138,6 +142,8 @@ const siteForm = document.getElementById('canteiroForm');
 const areaForm = document.getElementById('areaForm');
 const siteWidthInput = document.getElementById('siteWidth');
 const siteLengthInput = document.getElementById('siteLength');
+const envWidthInput = document.getElementById('envWidth');
+const envLengthInput = document.getElementById('envLength');
 const controlsDiv = document.querySelector('.controls');
 const areasList = document.getElementById('areasList');
 const canvas = document.getElementById('canvas');
@@ -148,7 +154,7 @@ const printBtn = document.getElementById('printBtn');
 
 let siteWidth = 0; // largura do canteiro (m)
 let siteLength = 0; // comprimento do canteiro (m)
-let areas = [];     // cada área: {name, size, width, length}
+let areas = [];     // cada área: {name, width, length, size}
 let zoom = 1;
 
 // --- AJUDANTE ARREDONDAMENTO PARA MÚLTIPLOS DE 0.6m
@@ -163,7 +169,7 @@ function drawPlant() {
     ctx.scale(zoom, zoom);
 
     // "padding" e dimensões úteis
-    const padding = 28; // espaço interno para ficar bonito
+    const padding = 28; // espaço interno
     const usableWidth = (canvas.width - 2*padding) / zoom;
     const usableHeight = (canvas.height - 2*padding) / zoom;
 
@@ -186,15 +192,11 @@ function drawPlant() {
         let areaPxW = area.width * pxPerM_W;
         let areaPxL = area.length * pxPerM_L;
         if(xAtual + area.width + spacing > siteWidth + 0.0001) { // +epsilon
-            // próxima linha
             xAtual = 0;
             yAtual += maxHdaLinha + spacing;
             maxHdaLinha = 0;
         }
-
-        // não desenha se passar limite do canteiro
         if(yAtual + area.length > siteLength + 0.0001) return;
-
         // retângulo ambiente
         let drawX = padding + xAtual*pxPerM_W;
         let drawY = padding + yAtual*pxPerM_L;
@@ -214,14 +216,13 @@ function drawPlant() {
         ctx.fillText(area.name, drawX+7, drawY+19);
         ctx.font = 'normal 13px Arial';
         ctx.fillText(`${area.width.toFixed(1)} x ${area.length.toFixed(1)} m`, drawX+7, drawY+36);
-        ctx.fillText(`(${area.width*area.length} m²)`, drawX+7, drawY+54);
+        ctx.fillText(`(${area.size.toFixed(2)} m²)`, drawX+7, drawY+54);
 
-        // avançar posição
         maxHdaLinha = Math.max(maxHdaLinha, area.length);
         xAtual += area.width + spacing;
     });
 
-    // grade de múltiplos 0,6m (opcional, visual)
+    // grade de múltiplos 0,6m (visual opcional)
     ctx.save();
     ctx.strokeStyle = "#aac";
     ctx.lineWidth = 1;
@@ -258,7 +259,6 @@ siteForm.addEventListener('submit', function(e){
     e.preventDefault();
     let w = parseFloat(siteWidthInput.value);
     let l = parseFloat(siteLengthInput.value);
-    // arredondar para múltiplos de 0.6 m
     w = round06(w);
     l = round06(l);
     if(w < 1.2 || l < 1.2) {
@@ -269,7 +269,6 @@ siteForm.addEventListener('submit', function(e){
     siteLength = l;
     siteWidthInput.value = w;
     siteLengthInput.value = l;
-    // Exibir form das áreas + controles
     areaForm.style.display = "";
     controlsDiv.style.display = "";
     siteForm.style.display = "none";
@@ -281,31 +280,24 @@ siteForm.addEventListener('submit', function(e){
 areaForm.addEventListener('submit', function(e){
     e.preventDefault();
     const name = document.getElementById('areaName').value.trim();
-    let sz = parseFloat(document.getElementById('areaSize').value);
-    if(!name || sz <= 0) return;
+    let w = parseFloat(envWidthInput.value);
+    let l = parseFloat(envLengthInput.value);
+    w = round06(w);
+    l = round06(l);
 
-    // Encontra combinações (largura x comprimento) possíveis, múltiplos de 0.6, área >= sz
-    // Fixa a largura (de 0.6 até siteWidth) e vê se há profundidade possível cabendo dentro do canteiro
-    let found = null, minArea = null;
-    for(let largura=0.6; largura<=siteWidth; largura+=0.6){
-        let prof = Math.ceil(sz/largura/0.6)*0.6;
-        if(prof > siteLength) continue;
-        let areaReal = largura*prof;
-        if(areaReal<sz) continue;
-        // Só aceita se área encaixa, por linha (máximo), também não pode ficar com ambiente muito comprido (ratio extremo)
-        if((minArea===null)||(areaReal < minArea)){
-            found = {width: largura, length: prof};
-            minArea = areaReal;
-        }
-    }
-    if(!found){
-        alert("Não é possível criar essa área nesse canteiro (considere aumentar as dimensões do canteiro, ou diminuir o tamanho do ambiente).");
+    if(!name || w <= 0 || l <= 0) return;
+    // Validação das dimensões dos ambientes
+    if(w % 0.6 !== 0 || l % 0.6 !== 0){
+        alert("As dimensões devem ser múltiplos de 0,6m.");
         return;
     }
-
-    // Verifica se sobra espaço livre (em linha), para encaixar mais um retângulo (controle de overflow)
-    // Faz simulação "à la mosaico"
-    let simAreas = areas.concat([{name, size: sz, width: found.width, length: found.length}]);
+    if(w > siteWidth || l > siteLength){
+        alert("As dimensões do ambiente não podem ser maiores que o canteiro.");
+        return;
+    }
+    // Checagem de encaixe no canteiro (simulação)
+    let newArea = {name, width: w, length: l, size: w*l};
+    let simAreas = areas.concat([newArea]);
     let xAtual=0, yAtual=0, maxH = 0, cabe = true, spacing = 0.03;
     for(let i=0;i<simAreas.length;i++){
         if(xAtual + simAreas[i].width + spacing > siteWidth+0.0001){
@@ -321,20 +313,15 @@ areaForm.addEventListener('submit', function(e){
         xAtual += simAreas[i].width + spacing;
     }
     if(!cabe){
-        alert("Não há espaço disponível para essa área, considerando as demais já adicionadas.");
+        alert("Não há espaço disponível para esse ambiente, considerando os demais já adicionados.");
         return;
     }
 
-    areas.push({
-        name,
-        size: sz,
-        width: found.width,
-        length: found.length
-    });
-    // Atualiza a lista de áreas
+    areas.push(newArea);
+    // Atualiza a lista
     areasList.innerHTML = '';
     areas.forEach((a, idx) => {
-        areasList.innerHTML += `<li>${a.name} – ${a.width.toFixed(1)} x ${a.length.toFixed(1)} m <span style="color:#888;">(${(a.width*a.length).toFixed(2)} m²)</span> <button onclick="removeArea(${idx})" style="color:#c00;background:none;border:none;cursor:pointer;" title="Remover área">&times;</button></li>`;
+        areasList.innerHTML += `<li>${a.name} – ${a.width.toFixed(1)} x ${a.length.toFixed(1)} m <span style="color:#888;">(${a.size.toFixed(2)} m²)</span> <button onclick="removeArea(${idx})" style="color:#c00;background:none;border:none;cursor:pointer;" title="Remover área">&times;</button></li>`;
     });
     drawPlant();
     areaForm.reset();
@@ -345,7 +332,7 @@ window.removeArea = function(idx){
     areas.splice(idx, 1);
     areasList.innerHTML = '';
     areas.forEach((a, i) => {
-        areasList.innerHTML += `<li>${a.name} – ${a.width.toFixed(1)} x ${a.length.toFixed(1)} m <span style="color:#888;">(${(a.width*a.length).toFixed(2)} m²)</span> <button onclick="removeArea(${i})" style="color:#c00;background:none;border:none;cursor:pointer;" title="Remover área">&times;</button></li>`;
+        areasList.innerHTML += `<li>${a.name} – ${a.width.toFixed(1)} x ${a.length.toFixed(1)} m <span style="color:#888;">(${a.size.toFixed(2)} m²)</span> <button onclick="removeArea(${i})" style="color:#c00;background:none;border:none;cursor:pointer;" title="Remover área">&times;</button></li>`;
     });
     drawPlant();
 };
