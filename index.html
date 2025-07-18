@@ -1,143 +1,307 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-    <meta charset="UTF-8">
-    <title>Planta Baixa - Canteiro de Obras</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            background: #f9f9f9;
-            margin: 0;
-            padding: 0;
-        }
-        .container {
-            max-width: 980px;
-            margin: 30px auto;
-            background: #fff;
-            border-radius: 12px;
-            box-shadow: 0 2px 14px rgba(0,0,0,.08);
-            padding: 30px;
-        }
-        h1 {
-            color: #2b4162;
-        }
-        form {
-            margin-bottom: 22px;
-        }
-        label {
-            margin-right: 15px;
-        }
-        input[type="text"], input[type="number"] {
-            margin-right: 12px;
-            padding: 5px 8px;
-        }
-        button {
-            background: #2b4162;
-            color: #fff;
-            border: none;
-            padding: 8px 20px;
-            border-radius: 5px;
-            cursor: pointer;
-        }
-        #canvas {
-            margin-top: 35px;
-            background: #ececec;
-            border: 2px solid #2b4162;
-            border-radius: 8px;
-        }
-        .areas-list {
-            margin-top: 25px;
-        }
-        .areas-list li {
-            color: #555;
-        }
-    </style>
+    <meta charset="UTF-8">
+    <title>Planta Baixa - Canteiro de Obras</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f9f9f9; margin: 0; padding: 0;}
+        .container { max-width: 980px; margin: 30px auto; background: #fff; border-radius: 12px; box-shadow: 0 2px 14px rgba(0,0,0,.08); padding: 35px;}
+        h1 { color: #2b4162; font-size: 2.2rem;}
+        label { margin-right: 15px; font-size: 1.07rem; }
+        input[type="text"], input[type="number"] { margin-right: 12px; padding: 6px 9px; font-size: 1.03rem;}
+        button, .zoom-btn { background: #2b4162; color: #fff; border: none; padding: 8px 22px; border-radius: 6px; cursor: pointer; font-size: 17px; margin-right: 0.3rem;}
+        .zoom-btn { padding: 6px 17px; font-size: 21px; margin-right: 10px;}
+        #canvas { margin-top: 35px; background: #ececec; border: 2px solid #2b4162; border-radius: 8px; display: block; margin-left: auto; margin-right: auto; }
+        .areas-list { margin-top: 25px; }
+        .areas-list li { color: #555; font-size: 1.00rem;}
+        .controls { margin-top: 15px; margin-bottom: 5px; display: flex; gap: 15px; align-items: center;}
+        .caninteiro-form{ margin-bottom: 18px;}
+        .selected-area { outline: 2px solid #1170fa !important; }
+        @media print {
+            body * { visibility: hidden; }
+            #canvas, #canvas * { visibility: visible !important; }
+            #printArea { position: absolute; left: 0; top: 0; width: 100%; }
+            .container { box-shadow: none; padding: 0;}
+        }
+    </style>
 </head>
 <body>
 <div class="container">
-    <h1>Gerador de Planta Baixa para Canteiro de Obras</h1>
-    <form id="areaForm">
-        <label>
-            Nome da Área:
-            <input type="text" id="areaName" required placeholder="ex: Depósito">
-        </label>
-        <label>
-            Tamanho (m²):
-            <input type="number" id="areaSize" min="1" max="500" required placeholder="ex: 20">
-        </label>
-        <button type="submit">Adicionar Área</button>
-    </form>
-
-    <div>
-        <strong>Áreas Adicionadas:</strong>
-        <ul class="areas-list" id="areasList"></ul>
-    </div>
-
-    <canvas id="canvas" width="800" height="400"></canvas>
-    <p style="font-size:13px;color:#888">A planta é ilustrativa. Cada área é proporcional ao tamanho informado.</p>
+    <h1>Gerador de Planta Baixa para Canteiro de Obras</h1>
+    <form id="canteiroForm" class="caninteiro-form">
+        <label>
+            Largura do Canteiro (m): <input type="number" id="siteWidth" min="1.2" step="any" required placeholder="ex: 12" />
+        </label>
+        <label>
+            Comprimento do Canteiro (m): <input type="number" id="siteLength" min="1.2" step="any" required placeholder="ex: 24" />
+        </label>
+        <button type="submit">Definir Canteiro</button>
+    </form>
+    <form id="areaForm" style="display:none;">
+        <label> Nome da Área: <input type="text" id="areaName" required placeholder="ex: Depósito"></label>
+        <label> Largura (m): <input type="number" id="envWidth" min="0.6" step="any" required placeholder="ex: 3.6"> </label>
+        <label> Comprimento (m): <input type="number" id="envLength" min="0.6" step="any" required placeholder="ex: 6.0"> </label>
+        <button type="submit">Adicionar Ambiente</button>
+    </form>
+    <div>
+        <strong>Áreas Adicionadas:</strong>
+        <ul class="areas-list" id="areasList"></ul>
+    </div>
+    <div class="controls" style="display:none;">
+        <button class="zoom-btn" id="zoomIn">+</button>
+        <button class="zoom-btn" id="zoomOut">-</button>
+        <button id="printBtn">Imprimir Planta</button>
+        <span style="font-size:14px;color:#888">Use os botões para aproximar/afastar (zoom) ou imprimir a planta baixa.</span>
+    </div>
+    <canvas id="canvas" width="800" height="400"></canvas>
+    <p style="font-size:13px;color:#888">Arraste uma área para reposicionar. A planta é ilustrativa e as dimensões podem ter qualquer valor.</p>
 </div>
-
 <script>
-    const form = document.getElementById('areaForm');
-    const areasList = document.getElementById('areasList');
-    const canvas = document.getElementById('canvas');
-    const ctx = canvas.getContext('2d');
+const siteForm = document.getElementById('canteiroForm');
+const areaForm = document.getElementById('areaForm');
+const siteWidthInput = document.getElementById('siteWidth');
+const siteLengthInput = document.getElementById('siteLength');
+const envWidthInput = document.getElementById('envWidth');
+const envLengthInput = document.getElementById('envLength');
+const controlsDiv = document.querySelector('.controls');
+const areasList = document.getElementById('areasList');
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const zoomInBtn = document.getElementById('zoomIn');
+const zoomOutBtn = document.getElementById('zoomOut');
+const printBtn = document.getElementById('printBtn');
+let siteWidth = 0, siteLength = 0;
+let areas = [];
+let zoom = 1;
+let draggingIdx = null;
+let dragOffset = {x:0, y:0};
 
-    let areas = [];
-
-    function drawPlant() {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        let totalArea = areas.reduce((sum, a) => sum + a.size, 0);
-        let currentX = 10, currentY = 10, rowHeight = 0;
-
-        // Definição simplificada: distribuir áreas na horizontal, quebra linha quando acabar espaço
-        const plantWidth = canvas.width - 20;
-        const plantHeight = canvas.height - 20;
-        const scale = totalArea > 0 ? Math.min(
-            plantWidth / Math.sqrt(totalArea * plantWidth / plantHeight),
-            plantHeight / Math.sqrt(totalArea * plantHeight / plantWidth)
-        ) : 1;
-
-        areas.forEach((area, idx) => {
-            // Cada área é um quadrado proporcional à sua metragem quadrada (simplesmente para ilustrar)
-            let areaPx = Math.sqrt(area.size) * scale * 2.2;
-            if (currentX + areaPx > plantWidth + 10) {
-                currentX = 10;
-                currentY += rowHeight + 20;
-                rowHeight = 0;
-            }
-            // cor alternativa para fácil visualização
-            ctx.fillStyle = `hsl(${idx*60%360},83%,80%)`;
-            ctx.strokeStyle = '#2b4162';
-            ctx.lineWidth = 2;
-            ctx.fillRect(currentX, currentY, areaPx, areaPx);
-            ctx.strokeRect(currentX, currentY, areaPx, areaPx);
-            ctx.fillStyle = '#2b4162';
-            ctx.font = 'bold 18px Arial';
-            ctx.fillText(area.name, currentX + 10, currentY + 28);
-            ctx.font = 'normal 12px Arial';
-            ctx.fillText(`${area.size} m²`, currentX + 10, currentY + 48);
-
-            currentX += areaPx + 20;
-            if (areaPx > rowHeight) rowHeight = areaPx;
-        });
-    }
-
-    form.addEventListener('submit', function(e) {
-        e.preventDefault();
-        const name = document.getElementById('areaName').value.trim();
-        const size = parseFloat(document.getElementById('areaSize').value);
-        if(name && size > 0){
-            areas.push({name, size});
-            // Atualiza lista
-            areasList.innerHTML = '';
-            areas.forEach(a => {
-                areasList.innerHTML += `<li>${a.name} – ${a.size} m²</li>`;
-            });
-            drawPlant();
-            form.reset();
-        }
-    });
+function getColorForIndex(i, len) {
+    let colorStep = 360 / (len+1);
+    return `hsl(${(i*colorStep+47)%360},72%,84%)`;
+}
+function ajustarSobreposicao(idxMovido) {
+    let ocupados = [];
+    areas.forEach((a, idx) => {
+        if(idx !== idxMovido && a.x!=null && a.y!=null) {
+            ocupados.push({x:a.x, y:a.y, w:a.width, l:a.length, idx});
+        }
+    });
+    for(let i=0; i<areas.length; i++) {
+        if(i===idxMovido) continue;
+        let a = areas[i];
+        if(a.x==null||a.y==null) continue;
+        let encontrou = false, tentativas=0;
+        do {
+            encontrou = false;
+            tentativas++;
+            for(let j=0;j<ocupados.length;j++) {
+                if(ocupados[j].idx===i) continue;
+                if(rectIntersect(a.x, a.y, a.width, a.length, ocupados[j].x, ocupados[j].y, ocupados[j].w, ocupados[j].l)){
+                    a.y = a.y+0.01; // subir um pouco, mínimo absoluto para não travar, mas pode ser qualquer valor pequeno
+                    encontrou = true;
+                }
+                if(a.x+a.width > siteWidth) { a.x = siteWidth - a.width; a.x=Math.max(0,a.x);}
+                if(a.y+a.length > siteLength) { a.y = siteLength - a.length; a.y=Math.max(0,a.y);}
+            }
+        } while(encontrou && tentativas<10);
+        ocupados[i] = {x:a.x, y:a.y, w:a.width, l:a.length, idx:i};
+    }
+}
+function rectIntersect(x1,y1,w1,l1, x2,y2,w2,l2) {
+    return !(x1+w1<=x2 || x2+w2<=x1 || y1+l1<=y2 || y2+l2<=y1);
+}
+function drawPlant(selectedIdx=null){
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.save();
+    ctx.scale(zoom, zoom);
+    const padding = 28;
+    const usableWidth = (canvas.width - 2*padding)/zoom;
+    const usableHeight = (canvas.height - 2*padding)/zoom;
+    const pxPerM_W = usableWidth / siteWidth;
+    const pxPerM_L = usableHeight / siteLength;
+    ctx.strokeStyle = '#2b4162';
+    ctx.setLineDash([]);
+    ctx.lineWidth = 4;
+    ctx.strokeRect(padding, padding, pxPerM_W * siteWidth, pxPerM_L * siteLength);
+    areas.forEach((area, i) => {
+        let drawX = padding + (area.x==null? 0 : area.x*pxPerM_W);
+        let drawY = padding + (area.y==null? 0 : area.y*pxPerM_L);
+        let areaPxW = area.width*pxPerM_W, areaPxL = area.length*pxPerM_L;
+        ctx.fillStyle = getColorForIndex(i, areas.length);
+        ctx.strokeStyle = "#2b4162";
+        ctx.lineWidth = 2;
+        ctx.setLineDash([7,5]);
+        ctx.beginPath();
+        ctx.rect(drawX, drawY, areaPxW, areaPxL);
+        ctx.fill();
+        ctx.stroke();
+        if(i===selectedIdx){
+            ctx.save();
+            ctx.lineWidth = 4;
+            ctx.setLineDash([]);
+            ctx.strokeStyle="#1ca7ff";
+            ctx.strokeRect(drawX-2, drawY-2, areaPxW+4, areaPxL+4);
+            ctx.restore();
+        }
+        ctx.setLineDash([]);
+        ctx.fillStyle = "#2b4162";
+        ctx.font = 'bold 15px Arial';
+        ctx.fillText(area.name, drawX+7, drawY+19);
+        ctx.font = 'normal 13px Arial';
+        ctx.fillText(`${area.width.toFixed(2)} x ${area.length.toFixed(2)} m`, drawX+7, drawY+36);
+        ctx.fillText(`(${area.size.toFixed(2)} m²)`, drawX+7, drawY+54);
+    });
+    ctx.save();
+    ctx.strokeStyle = "#aac"; ctx.lineWidth = 1; ctx.setLineDash([2,6]);
+    // Linhas de grade a cada 0,1m (mantém a grade fina para referência, mas o preenchimento é livre)
+    for(let x=0.1;x<siteWidth;x+=0.1){
+        ctx.beginPath(); ctx.moveTo(padding + x*pxPerM_W, padding); ctx.lineTo(padding + x*pxPerM_W, padding+pxPerM_L*siteLength); ctx.stroke();
+    }
+    for(let y=0.1;y<siteLength;y+=0.1){
+        ctx.beginPath(); ctx.moveTo(padding, padding + y*pxPerM_L); ctx.lineTo(padding+pxPerM_W*siteWidth, padding + y*pxPerM_L); ctx.stroke();
+    }
+    ctx.restore();
+    ctx.fillStyle = "#555";
+    ctx.font = "12px Arial";
+    ctx.fillText(siteWidth + " m", padding + pxPerM_W * siteWidth / 2 - 19, padding - 8);
+    ctx.save();
+    ctx.translate(padding - 15, padding + pxPerM_L*siteLength/2 + 19);
+    ctx.rotate(-Math.PI/2);
+    ctx.fillText(siteLength + " m", 0,0);
+    ctx.restore();
+    ctx.restore();
+}
+function pixelToMeters(ev){
+    const padding = 28;
+    const usableWidth = (canvas.width-2*padding)/zoom;
+    const usableHeight = (canvas.height-2*padding)/zoom;
+    const pxPerM_W = usableWidth / siteWidth;
+    const pxPerM_L = usableHeight / siteLength;
+    let rect = canvas.getBoundingClientRect();
+    let x = (ev.clientX - rect.left)/zoom - padding;
+    let y = (ev.clientY - rect.top)/zoom - padding;
+    return {
+        mx: x / pxPerM_W,
+        my: y / pxPerM_L
+    };
+}
+canvas.addEventListener('mousedown', function(ev){
+    if(areas.length==0) return;
+    let {mx,my} = pixelToMeters(ev);
+    for(let i=areas.length-1;i>=0;i--) {
+        let a = areas[i];
+        if(!a.x&&a.x!==0) continue;
+        if(mx>=a.x&&mx<=(a.x+a.width)&&my>=a.y&&my<=(a.y+a.length)) {
+            draggingIdx = i;
+            dragOffset.x = mx - a.x;
+            dragOffset.y = my - a.y;
+            drawPlant(i);
+            return;
+        }
+    }
+});
+canvas.addEventListener('mousemove', function(ev){
+    if(draggingIdx==null) return;
+    let {mx,my} = pixelToMeters(ev);
+    let a = areas[draggingIdx];
+    let newX = mx-dragOffset.x;
+    let newY = my-dragOffset.y;
+    newX = Math.min(Math.max(0, newX), siteWidth-a.width);
+    newY = Math.min(Math.max(0, newY), siteLength-a.length);
+    a.x = newX; a.y = newY;
+    ajustarSobreposicao(draggingIdx);
+    drawPlant(draggingIdx);
+});
+window.addEventListener('mouseup',function(ev){
+    if(draggingIdx!=null) {
+        arrumaLista();
+    }
+    draggingIdx = null;
+    drawPlant();
+});
+function arrumaLista() {
+    areasList.innerHTML = '';
+    areas.forEach((a, idx) => {
+        areasList.innerHTML += `<li>${a.name} – ${a.width.toFixed(2)} x ${a.length.toFixed(2)} m
+         <span style="color:#888;">(${a.size.toFixed(2)} m²)
+         · pos: (${a.x!==undefined?a.x.toFixed(2):0},${a.y!==undefined?a.y.toFixed(2):0})</span>
+         <button onclick="removeArea(${idx})" style="color:#c00;background:none;border:none;cursor:pointer;" title="Remover área">&times;</button></li>`;
+    });
+}
+function dispoLinear() {
+    let xAtual=0, yAtual=0, maxHdaLinha=0;
+    let spacing=0.01; // Espaçamento mínimo, mantém apenas para evitar sobreposição
+    for(let i=0;i<areas.length;i++) {
+        let a = areas[i];
+        if(a.x!=null&&a.y!=null) continue;
+        if(xAtual + a.width + spacing > siteWidth+0.00001) {
+            xAtual=0; yAtual+= maxHdaLinha+spacing; maxHdaLinha = 0;
+        }
+        a.x = xAtual; a.y = yAtual;
+        maxHdaLinha = Math.max(maxHdaLinha,a.length);
+        xAtual += a.width + spacing;
+    }
+}
+siteForm.addEventListener('submit', function(e){
+    e.preventDefault();
+    let w = Number(siteWidthInput.value), l = Number(siteLengthInput.value);
+    if(w<1.2||l<1.2){ alert("O mínimo é 1,2m."); return; }
+    siteWidth=w; siteLength=l;
+    siteWidthInput.value=w; siteLengthInput.value=l;
+    areaForm.style.display=''; controlsDiv.style.display=''; siteForm.style.display='none';
+    areas = [];
+    areasList.innerHTML='';
+    drawPlant();
+});
+areaForm.addEventListener('submit', function(e){
+    e.preventDefault();
+    const name = document.getElementById('areaName').value.trim();
+    let w = Number(envWidthInput.value), l = Number(envLengthInput.value);
+    if(!name||w<=0||l<=0) return;
+    if(w>siteWidth||l>siteLength){ alert("Ambiente maior que canteiro!"); return;}
+    let tempArea = {name, width:w, length:l, size:w*l};
+    let simAreas = areas.concat([{...tempArea}]);
+    let xAtual=0, yAtual=0, maxH=0, cabe=true, spacing=0.01;
+    for(let i=0;i<simAreas.length;i++) {
+        if(xAtual+simAreas[i].width+spacing>siteWidth+0.0001){ xAtual=0; yAtual+=maxH+spacing; maxH=0;}
+        if(yAtual+simAreas[i].length>siteLength+0.0001){ cabe=false; break;}
+        maxH = Math.max(maxH, simAreas[i].length);
+        xAtual += simAreas[i].width + spacing;
+    }
+    if(!cabe) { alert("Não há espaço disponível."); return;}
+    areas.push({...tempArea});
+    dispoLinear();
+    arrumaLista();
+    drawPlant();
+    areaForm.reset();
+});
+window.removeArea = function(idx){
+    areas.splice(idx,1);
+    arrumaLista();
+    drawPlant();
+};
+zoomInBtn.addEventListener('click', function(e) { e.preventDefault(); zoom=Math.min(2.5,zoom+0.15); drawPlant(); });
+zoomOutBtn.addEventListener('click', function(e) { e.preventDefault(); zoom=Math.max(0.4,zoom-0.15); drawPlant(); });
+printBtn.addEventListener('click', function(e) {
+    e.preventDefault();
+    let dataUrl = canvas.toDataURL("image/png");
+    let win = window.open('', '_blank');
+    win.document.write(`
+        <html>
+        <head><title>Imprimir Planta do Canteiro</title>
+        <style>body { margin: 0; text-align: center; } img { max-width: 100vw; max-height: 95vh; margin: 0 auto; }</style>
+        </head>
+        <body>
+        <img src="${dataUrl}" />
+        <script>
+        window.onload = function() { setTimeout(function() { window.print(); }, 350); }
+        <\/script>
+        </body>
+        </html>
+    `); win.document.close();
+});
+window.addEventListener('DOMContentLoaded', drawPlant);
 </script>
 </body>
 </html>
